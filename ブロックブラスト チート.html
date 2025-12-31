@@ -1,0 +1,796 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
+    <title>Block Blast Solver Ultimate v3</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        :root {
+            --cell-bg: #2d3748;
+            --cell-active: #38b2ac;
+            --cell-active-glow: #4fd1c5;
+            --bg-color: #1a202c;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: white;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            touch-action: manipulation;
+            overscroll-behavior: none;
+        }
+
+        .grid-cell {
+            transition: all 0.1s ease;
+            cursor: pointer;
+            touch-action: none;
+            border-radius: 6px;
+            background-color: #2d3748;
+            border: 1px solid #4a5568;
+        }
+
+        .grid-cell:active {
+            transform: scale(0.95);
+        }
+
+        .filled {
+            background-color: var(--cell-active) !important;
+            border-color: var(--cell-active-glow) !important;
+            box-shadow: 0 0 12px rgba(79, 209, 197, 0.8), inset 0 0 5px rgba(255, 255, 255, 0.3);
+            position: relative;
+            z-index: 10;
+        }
+
+        .grid-8x8 {
+            display: grid;
+            grid-template-columns: repeat(8, 1fr);
+            gap: 4px;
+            aspect-ratio: 1;
+            width: 100%;
+            max-width: 350px;
+            margin: 0 auto;
+            background: #171923;
+            padding: 8px;
+            border-radius: 12px;
+            box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.5);
+        }
+
+        .grid-5x5 {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 2px;
+            aspect-ratio: 1;
+            width: 100%;
+            background: #171923;
+            padding: 4px;
+            border-radius: 8px;
+        }
+
+        .step-container {
+            border: 1px solid #4a5568;
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 24px;
+            background: #232936;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
+        }
+        
+        .step-hidden {
+            display: none !important;
+        }
+
+        .blink-anim {
+            animation: blink 0.5s infinite alternate;
+            background-color: #fc8181 !important;
+            box-shadow: 0 0 15px #fc8181;
+            border-color: #feb2b2 !important;
+        }
+
+        @keyframes blink {
+            from { opacity: 1; transform: scale(1); }
+            to { opacity: 0.6; transform: scale(0.95); }
+        }
+
+        .menu-overlay {
+            position: fixed;
+            top: 0;
+            right: 0;
+            bottom: 0;
+            width: 280px;
+            background: #2d3748;
+            transform: translateX(100%);
+            transition: transform 0.3s ease-in-out;
+            z-index: 50;
+            box-shadow: -5px 0 15px rgba(0,0,0,0.5);
+            padding: 20px;
+        }
+        .menu-open {
+            transform: translateX(0);
+        }
+
+        .modal-backdrop {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 40;
+            display: none;
+        }
+        .modal-backdrop.active {
+            display: block;
+        }
+
+        .pieces-input-area {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+            margin-top: 10px;
+        }
+
+        .solution-grid {
+            pointer-events: none;
+        }
+        
+        .placed-piece {
+            background-color: #ed8936 !important;
+            border-color: #fbd38d !important;
+            box-shadow: 0 0 12px rgba(237, 137, 54, 0.8), inset 0 0 5px rgba(255, 255, 255, 0.3);
+            z-index: 11;
+        }
+
+        .combo-counter-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: bold;
+            margin-left: 8px;
+        }
+        .bg-safe { background-color: #48bb78; color: #fff; }
+        .bg-warning { background-color: #ecc94b; color: #000; }
+        .bg-danger { background-color: #f56565; color: #fff; }
+
+        /* 詰み表示用アニメーション */
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-5px); }
+            75% { transform: translateX(5px); }
+        }
+        .shake { animation: shake 0.2s ease-in-out 0s 2; }
+
+    </style>
+</head>
+<body class="pb-24">
+
+    <!-- ヘッダー -->
+    <header class="flex justify-between items-center p-4 bg-gray-900 shadow-lg sticky top-0 z-30 border-b border-gray-700">
+        <h1 class="text-xl font-bold text-teal-400 flex items-center">
+            Block Blast Solver‼
+            <span class="ml-2 text-xs text-gray-400 font-normal border border-gray-600 rounded px-1">v3.0</span>
+        </h1>
+        <button id="menu-btn" class="p-2 focus:outline-none rounded-full hover:bg-gray-800 transition">
+            <svg class="w-7 h-7 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
+        </button>
+    </header>
+
+    <!-- メニュー -->
+    <div id="backdrop" class="modal-backdrop"></div>
+    <div id="side-menu" class="menu-overlay overflow-y-auto">
+        <div class="flex justify-between items-center mb-6">
+            <h2 class="text-xl font-bold text-white">設定</h2>
+            <button id="close-menu" class="text-gray-400 hover:text-white text-2xl">&times;</button>
+        </div>
+
+        <div class="space-y-8">
+            <div>
+                <h3 class="font-bold mb-3 text-teal-300 border-b border-gray-600 pb-1">解法モード</h3>
+                <div class="flex flex-col space-y-3">
+                    <label class="inline-flex items-center cursor-pointer">
+                        <input type="radio" name="mode" value="basic" class="form-radio text-teal-500 h-5 w-5" checked>
+                        <span class="ml-3 text-gray-200">基本の解法 <span class="text-xs text-gray-500 block">とにかく置く・消す (生存優先)</span></span>
+                    </label>
+                    <label class="inline-flex items-center cursor-pointer">
+                        <input type="radio" name="mode" value="strongest" class="form-radio text-purple-500 h-5 w-5">
+                        <span class="ml-3 text-gray-200">最強の解法（Beta） <span class="text-xs text-gray-500 block">長期的なコンボ維持・次ブロック予測</span></span>
+                    </label>
+                </div>
+            </div>
+
+            <div id="strongest-settings" class="hidden pl-4 border-l-2 border-purple-500 bg-gray-800 bg-opacity-50 p-3 rounded-r">
+                <h3 class="font-bold mb-2 text-sm text-purple-300">コンボ維持設定</h3>
+                <p class="text-xs text-gray-400 mb-3">1ライン以上消してから...</p>
+                <div class="flex flex-col space-y-2">
+                    <label class="inline-flex items-center cursor-pointer">
+                        <input type="radio" name="device" value="iphone" class="form-radio text-purple-500" checked>
+                        <span class="ml-2 text-sm">iPhone (3手以内)</span>
+                    </label>
+                    <label class="inline-flex items-center cursor-pointer">
+                        <input type="radio" name="device" value="android" class="form-radio text-purple-500">
+                        <span class="ml-2 text-sm">Android (4手以内)</span>
+                    </label>
+                </div>
+                <div class="mt-3 pt-2 border-t border-gray-700">
+                     <p class="text-xs text-gray-400">現在の経過手数(任意):</p>
+                     <select id="initial-moves" class="w-full mt-1 bg-gray-700 text-white text-sm rounded border border-gray-600 p-1">
+                         <option value="0">0 (直前に消した)</option>
+                         <option value="1">1 (1手消費済み)</option>
+                         <option value="2">2 (2手消費済み)</option>
+                         <option value="3">3 (3手消費済み)</option>
+                     </select>
+                </div>
+            </div>
+
+            <div class="pt-4">
+                <button id="clear-all" class="w-full bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-white font-bold py-3 px-4 rounded shadow-lg transition">
+                    盤面全リセット
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- メイン -->
+    <main class="container mx-auto px-4 mt-6 max-w-2xl">
+        <div class="mb-2 flex justify-between items-end">
+            <label class="text-sm text-gray-300 font-semibold flex items-center">
+                <svg class="w-4 h-4 mr-1 text-teal-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"></path></svg>
+                現在の盤面
+            </label>
+            <button onclick="clearGrid('main-board')" class="text-xs text-red-400 hover:text-red-300 bg-red-900 bg-opacity-30 px-2 py-1 rounded">クリア</button>
+        </div>
+        <div id="main-board" class="grid-8x8 mb-8" data-size="8"></div>
+
+        <div class="mb-2 flex justify-between items-end">
+            <label class="text-sm text-gray-300 font-semibold flex items-center">
+                <svg class="w-4 h-4 mr-1 text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
+                手持ちブロック
+            </label>
+            <button onclick="clearPieces()" class="text-xs text-red-400 hover:text-red-300 bg-red-900 bg-opacity-30 px-2 py-1 rounded">クリア</button>
+        </div>
+        <div class="pieces-input-area mb-8">
+            <div class="flex flex-col items-center">
+                <div id="piece-1" class="grid-5x5" data-size="5"></div>
+                <span class="text-xs text-gray-500 mt-1">1つ目</span>
+            </div>
+            <div class="flex flex-col items-center">
+                <div id="piece-2" class="grid-5x5" data-size="5"></div>
+                <span class="text-xs text-gray-500 mt-1">2つ目</span>
+            </div>
+            <div class="flex flex-col items-center">
+                <div id="piece-3" class="grid-5x5" data-size="5"></div>
+                <span class="text-xs text-gray-500 mt-1">3つ目</span>
+            </div>
+        </div>
+
+        <div class="sticky bottom-6 z-20">
+            <button id="solve-btn" class="w-full bg-gradient-to-r from-teal-500 to-blue-600 hover:from-teal-400 hover:to-blue-500 text-white font-bold py-4 px-4 rounded-full shadow-xl transform transition active:scale-95 text-xl flex justify-center items-center ring-2 ring-white ring-opacity-20 backdrop-blur-sm">
+                <span>解決する！</span>
+                <span id="loading-spinner" class="hidden ml-3 animate-spin h-5 w-5 border-2 border-white border-t-transparent rounded-full"></span>
+            </button>
+        </div>
+
+        <!-- 詰み警告表示エリア -->
+        <div id="game-over-alert" class="mt-10 hidden animate-bounce">
+            <div class="bg-red-600 text-white p-6 rounded-2xl shadow-2xl text-center border-4 border-white border-opacity-30">
+                <div class="text-4xl mb-2">🚫</div>
+                <h2 class="text-2xl font-black mb-1">詰んでいます！</h2>
+                <p class="text-sm font-bold opacity-90">全てのパターンを試行しましたが、置ける場所がありませんでした。</p>
+            </div>
+        </div>
+
+        <!-- 結果表示エリア -->
+        <div id="solution-area" class="mt-10 hidden animate-fade-in pb-10">
+            <div class="flex items-center justify-center mb-6">
+                <div class="h-px bg-gray-600 w-full"></div>
+                <h2 class="text-2xl font-bold px-4 whitespace-nowrap text-teal-300">最適解の手順</h2>
+                <div class="h-px bg-gray-600 w-full"></div>
+            </div>
+            
+            <div id="steps-container">
+                <div class="step-container" id="container-step-1">
+                    <div class="flex justify-between items-start mb-3">
+                        <h3 class="font-bold text-lg text-white flex items-center">Step 1</h3>
+                        <div id="counter-step-1"></div>
+                    </div>
+                    <div id="solution-step-1" class="grid-8x8 solution-grid" data-size="8"></div>
+                    <p class="text-sm text-gray-300 mt-3 p-2 bg-gray-800 rounded" id="desc-step-1"></p>
+                </div>
+                <div class="step-container" id="container-step-2">
+                    <div class="flex justify-between items-start mb-3">
+                        <h3 class="font-bold text-lg text-white flex items-center">Step 2</h3>
+                        <div id="counter-step-2"></div>
+                    </div>
+                    <div id="solution-step-2" class="grid-8x8 solution-grid" data-size="8"></div>
+                    <p class="text-sm text-gray-300 mt-3 p-2 bg-gray-800 rounded" id="desc-step-2"></p>
+                </div>
+                <div class="step-container" id="container-step-3">
+                    <div class="flex justify-between items-start mb-3">
+                        <h3 class="font-bold text-lg text-white flex items-center">Step 3</h3>
+                        <div id="counter-step-3"></div>
+                    </div>
+                    <div id="solution-step-3" class="grid-8x8 solution-grid" data-size="8"></div>
+                    <p class="text-sm text-gray-300 mt-3 p-2 bg-gray-800 rounded" id="desc-step-3"></p>
+                </div>
+            </div>
+
+            <div class="mt-6 mb-12">
+                <button id="apply-result-btn" class="w-full bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 px-4 rounded-lg border border-gray-500 shadow-lg flex justify-center items-center">
+                    <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                    反映して次のブロックへ
+                </button>
+            </div>
+        </div>
+
+    </main>
+
+    <script>
+        const state = {
+            mainBoard: Array(8).fill().map(() => Array(8).fill(0)),
+            pieces: [
+                Array(5).fill().map(() => Array(5).fill(0)),
+                Array(5).fill().map(() => Array(5).fill(0)),
+                Array(5).fill().map(() => Array(5).fill(0))
+            ],
+            mode: 'basic',
+            deviceLimit: 3,
+            initialMoves: 0,
+            finalBoardState: null,
+            tempNextStartMoves: 0
+        };
+
+        const mainBoardEl = document.getElementById('main-board');
+        const pieceEls = [
+            document.getElementById('piece-1'),
+            document.getElementById('piece-2'),
+            document.getElementById('piece-3')
+        ];
+        const solveBtn = document.getElementById('solve-btn');
+        const loadingSpinner = document.getElementById('loading-spinner');
+        const solutionArea = document.getElementById('solution-area');
+        const gameOverAlert = document.getElementById('game-over-alert');
+        const sideMenu = document.getElementById('side-menu');
+        const backdrop = document.getElementById('backdrop');
+
+        function init() {
+            createGrid(mainBoardEl, 8, state.mainBoard);
+            pieceEls.forEach((el, idx) => createGrid(el, 5, state.pieces[idx]));
+            setupMenu();
+            setupInteractions();
+        }
+
+        function createGrid(element, size, dataRef) {
+            element.innerHTML = '';
+            element.style.gridTemplateColumns = `repeat(${size}, 1fr)`;
+            for (let r = 0; r < size; r++) {
+                for (let c = 0; c < size; c++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'grid-cell';
+                    cell.dataset.r = r;
+                    cell.dataset.c = c;
+                    if (dataRef[r][c] === 1) cell.classList.add('filled');
+                    element.appendChild(cell);
+                }
+            }
+            attachDrawEvents(element, size, dataRef);
+        }
+
+        function attachDrawEvents(element, size, dataRef) {
+            let isDrawing = false;
+            let drawMode = 1;
+            const toggleCell = (target) => {
+                if (!target.classList.contains('grid-cell')) return;
+                const r = parseInt(target.dataset.r);
+                const c = parseInt(target.dataset.c);
+                if (drawMode === 1) {
+                    dataRef[r][c] = 1;
+                    target.classList.add('filled');
+                } else {
+                    dataRef[r][c] = 0;
+                    target.classList.remove('filled');
+                }
+                solutionArea.classList.add('hidden');
+                gameOverAlert.classList.add('hidden');
+            };
+            const startDraw = (e) => {
+                e.preventDefault();
+                isDrawing = true;
+                const target = e.target.closest('.grid-cell');
+                if (target) {
+                    drawMode = dataRef[parseInt(target.dataset.r)][parseInt(target.dataset.c)] === 1 ? 0 : 1;
+                    toggleCell(target);
+                }
+            };
+            const moveDraw = (e) => {
+                if (!isDrawing) return;
+                e.preventDefault();
+                let target;
+                if (e.touches) {
+                    const touch = e.touches[0];
+                    target = document.elementFromPoint(touch.clientX, touch.clientY);
+                } else {
+                    target = e.target;
+                }
+                if (target && target.closest('.grid-cell') && element.contains(target)) {
+                    toggleCell(target.closest('.grid-cell'));
+                }
+            };
+            const endDraw = () => isDrawing = false;
+            element.addEventListener('mousedown', startDraw);
+            document.addEventListener('mousemove', moveDraw);
+            document.addEventListener('mouseup', endDraw);
+            element.addEventListener('touchstart', startDraw, { passive: false });
+            document.addEventListener('touchmove', moveDraw, { passive: false });
+            document.addEventListener('touchend', endDraw);
+        }
+
+        window.clearGrid = (id) => {
+            if (id === 'main-board') {
+                state.mainBoard = Array(8).fill().map(() => Array(8).fill(0));
+                createGrid(mainBoardEl, 8, state.mainBoard);
+            }
+            solutionArea.classList.add('hidden');
+            gameOverAlert.classList.add('hidden');
+        };
+
+        window.clearPieces = () => {
+            state.pieces = [
+                Array(5).fill().map(() => Array(5).fill(0)),
+                Array(5).fill().map(() => Array(5).fill(0)),
+                Array(5).fill().map(() => Array(5).fill(0))
+            ];
+            pieceEls.forEach((el, idx) => createGrid(el, 5, state.pieces[idx]));
+            solutionArea.classList.add('hidden');
+            gameOverAlert.classList.add('hidden');
+        };
+
+        function setupMenu() {
+            const toggleMenu = (open) => {
+                if (open) {
+                    sideMenu.classList.add('menu-open');
+                    backdrop.classList.add('active');
+                } else {
+                    sideMenu.classList.remove('menu-open');
+                    backdrop.classList.remove('active');
+                }
+            };
+            document.getElementById('menu-btn').addEventListener('click', () => toggleMenu(true));
+            document.getElementById('close-menu').addEventListener('click', () => toggleMenu(false));
+            backdrop.addEventListener('click', () => toggleMenu(false));
+            document.getElementById('clear-all').addEventListener('click', () => {
+                window.clearGrid('main-board');
+                window.clearPieces();
+                toggleMenu(false);
+            });
+            document.getElementsByName('mode').forEach(radio => {
+                radio.addEventListener('change', (e) => {
+                    state.mode = e.target.value;
+                    document.getElementById('strongest-settings').classList.toggle('hidden', state.mode !== 'strongest');
+                });
+            });
+            document.getElementsByName('device').forEach(radio => {
+                radio.addEventListener('change', (e) => state.deviceLimit = e.target.value === 'iphone' ? 3 : 4);
+            });
+            document.getElementById('initial-moves').addEventListener('change', (e) => state.initialMoves = parseInt(e.target.value));
+        }
+
+        function setupInteractions() {
+            solveBtn.addEventListener('click', runSolver);
+            document.getElementById('apply-result-btn').addEventListener('click', applyResultToInput);
+        }
+
+        async function runSolver() {
+            solveBtn.disabled = true;
+            solveBtn.querySelector('span').innerText = "計算中...";
+            loadingSpinner.classList.remove('hidden');
+            solutionArea.classList.add('hidden');
+            gameOverAlert.classList.add('hidden');
+
+            // UIレンダリング待ち
+            await new Promise(r => setTimeout(r, 100));
+
+            const inputBoard = JSON.parse(JSON.stringify(state.mainBoard));
+            const activePieces = [];
+            state.pieces.forEach((pGrid, index) => {
+                const trimmed = trimPiece(pGrid);
+                if (trimmed) activePieces.push({ id: index, shape: trimmed, originalIndex: index });
+            });
+
+            if (activePieces.length === 0) {
+                alert("ブロックを少なくとも1つ入力してください。");
+                resetBtn();
+                return;
+            }
+
+            const permutations = getPermutations(activePieces);
+            let bestResult = null;
+            let maxScore = -Infinity;
+            const startMoves = state.mode === 'strongest' ? state.initialMoves : 0;
+
+            for (const order of permutations) {
+                const result = solveRecursive(inputBoard, order, 0, startMoves);
+                if (result.score > maxScore) {
+                    maxScore = result.score;
+                    bestResult = result;
+                }
+            }
+
+            if (bestResult && bestResult.steps.length > 0 && !bestResult.gameOver) {
+                renderSolution(bestResult.steps, bestResult.finalBoard);
+                state.finalBoardState = bestResult.finalBoard;
+                const lastStep = bestResult.steps[bestResult.steps.length - 1];
+                state.tempNextStartMoves = lastStep.movesStat; 
+            } else {
+                gameOverAlert.classList.remove('hidden');
+                gameOverAlert.classList.add('shake');
+                setTimeout(() => gameOverAlert.classList.remove('shake'), 500);
+                window.scrollTo({ top: gameOverAlert.offsetTop - 100, behavior: 'smooth' });
+            }
+            resetBtn();
+        }
+
+        function resetBtn() {
+            solveBtn.disabled = false;
+            solveBtn.querySelector('span').innerText = "解決する！";
+            loadingSpinner.classList.add('hidden');
+        }
+
+        function trimPiece(grid) {
+            const cells = [];
+            for(let r=0; r<5; r++) for(let c=0; c<5; c++) if(grid[r][c] === 1) cells.push({r, c});
+            if (cells.length === 0) return null;
+            const minR = Math.min(...cells.map(c => c.r));
+            const minC = Math.min(...cells.map(c => c.c));
+            return cells.map(c => ({ r: c.r - minR, c: c.c - minC }));
+        }
+
+        function getPermutations(arr) {
+            if (arr.length <= 1) return [arr];
+            const result = [];
+            for (let i = 0; i < arr.length; i++) {
+                const remaining = arr.slice(0, i).concat(arr.slice(i + 1));
+                for (const p of getPermutations(remaining)) result.push([arr[i], ...p]);
+            }
+            return result;
+        }
+
+        function solveRecursive(board, pieces, depth, movesSinceClear) {
+            if (pieces.length === 0) return { score: 0, steps: [], finalBoard: board };
+            const currentPiece = pieces[0];
+            const validMoves = getAllValidMoves(board, currentPiece.shape);
+            
+            // 詰み判定
+            if (validMoves.length === 0) return { score: -999999, steps: [], finalBoard: board, gameOver: true };
+
+            let bestPath = null;
+            let maxS = -Infinity;
+
+            // --- 枝刈りの緩和 (嘘の詰み防止) ---
+            // 1手目は広く(40手)、2手目はそこそこ(10手)、3手目は絞る(8手)
+            // これにより複雑な盤面でも正解ルートを見逃しにくくする
+            let beamWidth = 8;
+            if (depth === 0) beamWidth = 40; 
+            else if (depth === 1) beamWidth = 10;
+
+            const rankedMoves = validMoves.map(move => {
+                const sim = simulateMove(board, currentPiece.shape, move.r, move.c);
+                // 仮評価でソート
+                return { move, sim, eval: evaluateBoardSafety(sim.board) + (sim.linesCleared * 100) };
+            }).sort((a, b) => b.eval - a.eval).slice(0, beamWidth);
+
+            for (const { move, sim } of rankedMoves) {
+                const nextMoves = sim.linesCleared > 0 ? 0 : movesSinceClear + 1;
+                const next = solveRecursive(sim.board, pieces.slice(1), depth + 1, nextMoves);
+                
+                // 次の手が詰むなら大幅減点 (ただし、まだ他の候補があるかもしれないので即死ではない)
+                let futurePenalty = 0;
+                if (next.gameOver) futurePenalty = -50000;
+
+                const isLastPiece = pieces.length === 1;
+                let score = calculateStepScore(sim, state.mode, state.deviceLimit, nextMoves, isLastPiece) + next.score + futurePenalty;
+
+                if (score > maxS) {
+                    maxS = score;
+                    bestPath = {
+                        score: score,
+                        steps: [{
+                            boardBefore: board,
+                            pieceIndex: currentPiece.originalIndex,
+                            placedAt: move,
+                            shape: currentPiece.shape,
+                            clearedLines: sim.linesIndices,
+                            movesStat: nextMoves 
+                        }, ...next.steps],
+                        finalBoard: next.finalBoard,
+                        gameOver: next.gameOver
+                    };
+                }
+            }
+
+            // 見つかったベストパスがゲームオーバーなら、それを返すしかない
+            return bestPath || { score: -999999, steps: [], finalBoard: board, gameOver: true };
+        }
+
+        function getAllValidMoves(board, shape) {
+            const moves = [];
+            const h = Math.max(...shape.map(p => p.r)) + 1;
+            const w = Math.max(...shape.map(p => p.c)) + 1;
+            for (let r = 0; r <= 8 - h; r++) {
+                for (let c = 0; c <= 8 - w; c++) {
+                    if (canPlace(board, shape, r, c)) moves.push({r, c});
+                }
+            }
+            return moves;
+        }
+
+        function canPlace(board, shape, r, c) {
+            return shape.every(p => board[r + p.r][c + p.c] === 0);
+        }
+
+        function simulateMove(board, shape, r, c) {
+            const nb = board.map(row => [...row]);
+            shape.forEach(p => nb[r + p.r][c + p.c] = 1);
+            const rtc = [], ctc = [];
+            for (let i = 0; i < 8; i++) if (nb[i].every(v => v === 1)) rtc.push(i);
+            for (let j = 0; j < 8; j++) {
+                let f = true;
+                for (let i = 0; i < 8; i++) if (nb[i][j] === 0) { f = false; break; }
+                if (f) ctc.push(j);
+            }
+            if (rtc.length > 0 || ctc.length > 0) {
+                for (let i = 0; i < 8; i++) for (let j = 0; j < 8; j++) if (rtc.includes(i) || ctc.includes(j)) nb[i][j] = 0;
+            }
+            return { board: nb, linesCleared: rtc.length + ctc.length, linesIndices: { rows: rtc, cols: ctc } };
+        }
+
+        function calculateStepScore(sim, mode, deviceLimit, count, isLastPiece) {
+            let s = 1000;
+            if (mode === 'basic') {
+                s += sim.linesCleared * 500 + countEmptyCells(sim.board) * 10;
+            } else {
+                // --- 最強の解法 v3 (Step3優先 & 未来予知) ---
+                
+                // 1. コンボ切れペナルティ
+                if (count >= deviceLimit) s -= 20000;
+
+                const emptyCells = countEmptyCells(sim.board);
+                const isSafe = emptyCells >= 18; 
+
+                // 2. Step3 (最後の1手) の特別扱い
+                if (isLastPiece) {
+                    if (sim.linesCleared > 0) {
+                        // 次のターンへコンボを持ち越せるので超高評価
+                        s += 8000 + (sim.linesCleared * 500); 
+                    } else {
+                         // ここで消せないと次のターンでコンボが切れる可能性が高い
+                         // 猶予カウントが既に溜まってるならペナルティ大
+                         s -= 1000 * count;
+                    }
+                } else {
+                    // Step 1, 2 の場合
+                    if (sim.linesCleared === 1) {
+                        s += 5000; // 1ライン消し維持が理想
+                    } else if (sim.linesCleared > 1) {
+                        if (isSafe) s += 1500; // 安全なら温存したいので少し下げる
+                        else s += 4500; // 危険なら消すしかない
+                    } else {
+                        s -= 500 * ((count + 1) / deviceLimit);
+                    }
+                }
+
+                // 3. 安全性評価 + 未来予測(危険ブロックへの備え)
+                s += evaluateBoardSafety(sim.board);
+                s += evaluateFutureReadiness(sim.board) * 2.5; // 重み付け強化
+                s -= countHoles(sim.board) * 150;
+                s += emptyCells * 30;
+            }
+            return s;
+        }
+
+        // 盤面の基本安全性
+        function evaluateBoardSafety(board) {
+            let pts = 0, c3 = 0;
+            // 3x3のスペースがあるか
+            for(let r=0; r<=5; r++) for(let c=0; c<=5; c++) {
+                let f = true;
+                for(let i=0; i<3; i++) for(let j=0; j<3; j++) if(board[r+i][c+j]===1) { f=false; break; }
+                if(f) c3++;
+            }
+            pts += (c3 > 0 ? 500 : 0) + c3 * 50;
+            return pts;
+        }
+
+        // 未来予測評価（次に来そうな意地悪なブロックが入る隙間があるか）
+        function evaluateFutureReadiness(board) {
+            let score = 0;
+            
+            // 巨大3x3が置けるか？ (非常に重要)
+            let canFit3x3 = false;
+            for(let r=0; r<=5; r++) for(let c=0; c<=5; c++) {
+                if([0,1,2].every(dr => [0,1,2].every(dc => board[r+dr][c+dc]===0))) { canFit3x3 = true; break; }
+            }
+            if(canFit3x3) score += 400;
+
+            // 長い棒(5マス)が置けるか？
+            let canFitH5 = false, canFitV5 = false;
+            // 横
+            for(let r=0; r<8; r++) for(let c=0; c<=3; c++) {
+                if([0,1,2,3,4].every(dc => board[r][c+dc]===0)) { canFitH5 = true; break; }
+            }
+            // 縦
+            for(let c=0; c<8; c++) for(let r=0; r<=3; r++) {
+                if([0,1,2,3,4].every(dr => board[r+dr][c]===0)) { canFitV5 = true; break; }
+            }
+            if(canFitH5) score += 200;
+            if(canFitV5) score += 200;
+
+            return score;
+        }
+
+        function countEmptyCells(board) {
+            let n = 0;
+            for(let r=0; r<8; r++) for(let c=0; c<8; c++) if(board[r][c]===0) n++;
+            return n;
+        }
+
+        function countHoles(board) {
+            let h = 0;
+            for(let r=1; r<7; r++) for(let c=1; c<7; c++) if (board[r][c]===0 && board[r-1][c]===1 && board[r+1][c]===1 && board[r][c-1]===1 && board[r][c+1]===1) h++;
+            return h;
+        }
+
+        function renderSolution(steps, finalBoard) {
+            solutionArea.classList.remove('hidden');
+            for(let i=1; i<=3; i++) document.getElementById(`container-step-${i}`).classList.add('step-hidden');
+
+            steps.forEach((step, index) => {
+                const sNum = index + 1;
+                document.getElementById(`container-step-${sNum}`).classList.remove('step-hidden');
+                const el = document.getElementById(`solution-step-${sNum}`);
+                el.innerHTML = '';
+                const pc = step.shape.map(p => `${step.placedAt.r + p.r},${step.placedAt.c + p.c}`);
+                for (let r = 0; r < 8; r++) {
+                    for (let c = 0; c < 8; c++) {
+                        const cell = document.createElement('div');
+                        cell.className = 'grid-cell';
+                        if (step.boardBefore[r][c] === 1) cell.classList.add('filled');
+                        if (pc.includes(`${r},${c}`)) cell.classList.add('placed-piece', 'filled');
+                        if (step.clearedLines.rows.includes(r) || step.clearedLines.cols.includes(c)) cell.classList.add('blink-anim');
+                        el.appendChild(cell);
+                    }
+                }
+                const lines = step.clearedLines.rows.length + step.clearedLines.cols.length;
+                document.getElementById(`desc-step-${sNum}`).innerHTML = `<span class="font-bold">ブロック ${step.pieceIndex + 1}</span> を配置${lines > 0 ? ` <span class="text-red-300 font-bold ml-2">💥 ${lines}ライン消去！</span>` : ''}`;
+                
+                const ctr = document.getElementById(`counter-step-${sNum}`);
+                ctr.innerHTML = '';
+                if (state.mode === 'strongest') {
+                    const badge = document.createElement('span');
+                    badge.className = `combo-counter-badge ${step.movesStat === 0 ? 'bg-safe' : (step.movesStat >= state.deviceLimit - 1 ? 'bg-danger' : 'bg-warning')}`;
+                    badge.innerText = step.movesStat === 0 ? "✨ コンボ継続中!" : `猶予: ${step.movesStat}/${state.deviceLimit}手`;
+                    ctr.appendChild(badge);
+                }
+            });
+            window.scrollTo({ top: solutionArea.offsetTop - 50, behavior: 'smooth' });
+        }
+
+        function applyResultToInput() {
+            if (!state.finalBoardState) return;
+            state.mainBoard = JSON.parse(JSON.stringify(state.finalBoardState));
+            createGrid(mainBoardEl, 8, state.mainBoard);
+            window.clearPieces();
+            
+            if (state.mode === 'strongest' && typeof state.tempNextStartMoves !== 'undefined') {
+                let nextMoves = state.tempNextStartMoves;
+                if (nextMoves > 3) nextMoves = 3; 
+                state.initialMoves = nextMoves;
+                const selectEl = document.getElementById('initial-moves');
+                if (selectEl) {
+                    selectEl.value = nextMoves;
+                }
+            }
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        init();
+    </script>
+</body>
+</html>
